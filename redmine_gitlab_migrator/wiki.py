@@ -4,8 +4,42 @@ import pypandoc
 import logging
 import re
 import unicodedata
+import urllib.request
+import os.path
+import os
 
 log = logging.getLogger(__name__)
+
+class Replacer():
+    def __init__(self, title):
+        self.title = title
+
+    def wiki_image(self, match):
+        name = match.group(1)
+        return '![{}](attachments/{}/{})'.format(name, self.title, name)
+
+    def html_image(self, match):
+        name = match.group(1)
+        return '{}attachments/{}/{}{}'.format(match.group(1), self.title, match.group(2), match.group(3))
+
+    def wiki_link(self, match):
+        name = match.group(1)
+        if len(match.groups()) > 1:
+            text = match.group(2)
+        else:
+            text = name
+
+        name = self.normalize(name).replace(' ', '_')
+        name = './' + name
+        return '[{}]({})'.format(text, name)
+
+    def normalize(self, title):
+        title = title.replace("ß", "ss")
+        title = title.replace("ä", "ae")
+        title = title.replace("ö", "oe")
+        title = title.replace("ü", "ue")
+        title = unicodedata.normalize('NFD', title).encode('ascii', 'ignore').decode('ascii')
+        return title
 
 class TextileConverter():
     def __init__(self):
@@ -29,16 +63,8 @@ class TextileConverter():
         self.regexParagraph = re.compile(r'p(\(+|(\)+)?>?|=)?\.', re.MULTILINE | re.DOTALL)
         self.regexCodeHighlight = re.compile(r'(<code\s?(class=\"(.*)\")?>).*(</code>)', re.MULTILINE | re.DOTALL)
         self.regexAttachment = re.compile(r'attachment:[\'\"“”‘’„”«»](.*)[\'\"“”‘’„”«»]', re.MULTILINE | re.DOTALL)
-
-    def wiki_link(self, match):
-        name = match.group(1)
-        if len(match.groups()) > 1:
-            text = match.group(2)
-        else:
-            text = name
-
-        name = self.normalize(name).replace(' ', '_')
-        return '[{}]({})'.format(text, name)
+        self.regexWikiImage = re.compile(r'!\[\]\((.*)\)')
+        self.regexHtmlImage = re.compile(r'(<img\s[^>]*?src\s*=\s*[\'\"])([^\'\"]*?)([\'\"][^>]*?>)')
 
     def normalize(self, title):
         title = title.replace("ß", "ss")
@@ -48,7 +74,8 @@ class TextileConverter():
         title = unicodedata.normalize('NFD', title).encode('ascii', 'ignore').decode('ascii')
         return title
 
-    def convert(self, text):
+    def convert(self, text, title):
+        replacer = Replacer(title)
         text = '\n\n'.join([re.sub(self.regexCodeBlock, r'<pre>\1</pre>', block) for block in text.split('\n\n')])
 
         collapseResults = re.findall(self.regexCollapse, text)
@@ -66,11 +93,17 @@ class TextileConverter():
             # pandoc does not convert everything, notably the [[link|text]] syntax
             # is not handled. So let's fix that.
 
+            # ![](image) -> ![image](image)
+            text = re.sub(self.regexWikiImage, replacer.wiki_image, text, re.MULTILINE | re.DOTALL)
+
+            # <img src="image" -> <img src="title_image"
+            text = re.sub(self.regexHtmlImage, replacer.html_image, text, re.MULTILINE | re.DOTALL)
+
             # [[ wikipage | link_text ]] -> [link_text](wikipage)
-            text = re.sub(self.regexWikiLinkWithText, self.wiki_link, text, re.MULTILINE | re.DOTALL)
+            text = re.sub(self.regexWikiLinkWithText, replacer.wiki_link, text, re.MULTILINE | re.DOTALL)
 
             # [[ link_url ]] -> [link_url](link_url)
-            text = re.sub(self.regexWikiLinkWithoutText, self.wiki_link, text, re.MULTILINE | re.DOTALL)
+            text = re.sub(self.regexWikiLinkWithoutText, replacer.wiki_link, text, re.MULTILINE | re.DOTALL)
 
             # nested lists, fix at least the common issues
             text = text.replace("    \\#\\*", "    -")
@@ -97,6 +130,7 @@ class TextileConverter():
                 for i in range(0, len(codeHighlights)):
                     text = text.replace(codeHighlights[i][0], "\n```{}".format(codeHighlights[i][2].lower()))
                     text = text.replace(codeHighlights[i][3], "\n```")
+
         except RuntimeError as e:
             return False
         return text
@@ -132,7 +166,7 @@ class WikiPageConverter():
 
         self.textile_converter = TextileConverter()
 
-    def convert(self, redmine_page):
+    def convert(self, redmine_page, redmine_api_key):
         title = self.textile_converter.normalize(redmine_page["title"])
         if (title == 'Wiki'):
             title = 'home'
@@ -151,7 +185,7 @@ class WikiPageConverter():
         text = text.replace("[[PageOutline]]", "")
         text = text.replace("{{>toc}}", "")
 
-        text = self.textile_converter.convert(text)
+        text = self.textile_converter.convert(text,title)
 
         # save file with author/date
         file_name = title + ".md"
@@ -159,6 +193,29 @@ class WikiPageConverter():
             print(text.replace('\n', "\n"), file=fd)
 
         # todo: check for attachments
+        attachments = redmine_page.get('attachments', [])
+
+        if attachments:
+            try:
+                os.makedirs(self.repo_path + "/attachments/" + title)
+            except:
+                pass
+
+        for a in attachments:
+            id = a['id']
+            filename = a['filename']
+            content_url = '{}?key={}'.format(a['content_url'], redmine_api_key) 
+            print("Attachment {} {} {}".format(id, filename, content_url))
+            fileuri = "attachments/" + title + "/" + filename
+            if(os.path.isfile(self.repo_path + "/" + fileuri) ):
+                print("Attachment exists, skipping")
+                continue
+            else:
+                urllib.request.urlretrieve(content_url, self.repo_path + "/" + fileuri)
+                author = Actor(redmine_page["author"]["name"], "")
+                time   = redmine_page["updated_on"].replace("T", " ").replace("Z", " +0000")
+                self.repo.index.add([fileuri])
+                self.repo.index.commit("Attachment" + filename, author=author, committer=author, author_date=time, commit_date=time)
         # todo: upload attachments
 
         if redmine_page["comments"]:

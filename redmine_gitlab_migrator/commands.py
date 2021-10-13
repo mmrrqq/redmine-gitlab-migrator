@@ -201,7 +201,7 @@ def perform_migrate_pages(args):
     pages.sort(key=lambda page: page["updated_on"])
 
     for page in pages:
-        wiki.convert(page)
+        wiki.convert(page,args.redmine_key)
 
 def perform_migrate_issues(args):
     closed_states = []
