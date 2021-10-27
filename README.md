@@ -32,6 +32,8 @@ Does
 - Migration of wiki pages including history:
   - versions become older commits
   - author names (without email addresses!) are the author/committer names
+  - Attachements are kept and stored in <pagename> folder (redmine keeps attachements per page and shows them on all (history)versions of the page)
+    - links / inline images are working
 
 Does not
 --------
@@ -48,6 +50,7 @@ Does not
 - Keep track of issue relations orientation (no such notion on gitlab)
 - Migrate tags ([redmine_tags](https://www.redmine.org/plugins/redmine_tags)
   plugin), as they are not exposed in gitlab API
+- Create attachement links on wiki pages 
 
 Requires
 --------
@@ -68,9 +71,6 @@ Requires
 Let's go
 --------
 
-You can or can not use
-[virtualenvs](http://docs.python-guide.org/en/latest/dev/virtualenvs/), that's
-up to you.
 
 Install it:
 
@@ -82,7 +82,7 @@ or latest version from GitHub:
 
 or if you cloned the git:
 
-    python setup.py install
+    pip install
 
 You can then give it a check without touching anything:
 
@@ -215,6 +215,8 @@ each page to be converted, too.
 After conversion, verify that everything is correct (a copy of the original
 wiki page is included in the repo, however not added/committed), and then
 simply push it back to GitLab.
+        
+You may have to rename/copy the homepage to "home.md".
 
 ### Import git repository
 
