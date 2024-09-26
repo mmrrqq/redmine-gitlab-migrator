@@ -29,6 +29,10 @@ def parse_args():
 
     subparsers = parser.add_subparsers(dest='command')
 
+    parser_user = subparsers.add_parser(
+        'users', help=perform_get_user.__doc__)
+    parser_user.set_defaults(func=perform_get_user)
+
     parser_issues = subparsers.add_parser(
         'issues', help=perform_migrate_issues.__doc__)
     parser_issues.set_defaults(func=perform_migrate_issues)
@@ -53,7 +57,7 @@ def parse_args():
         'delete-issues', help=perform_delete_issues.__doc__)
     delete_issues.set_defaults(func=perform_delete_issues)
 
-    for i in (parser_issues, parser_pages, parser_roadmap, parser_redirect):
+    for i in (parser_issues, parser_pages, parser_roadmap, parser_redirect, parser_user):
         i.add_argument('redmine_project_url')
         i.add_argument(
             '--redmine-key',
@@ -67,7 +71,7 @@ def parse_args():
             required=True,
             help="Gitlab administrator API key")
 
-    for i in (parser_issues, parser_pages, parser_roadmap, parser_iid, parser_redirect, delete_issues):
+    for i in (parser_issues, parser_pages, parser_roadmap, parser_iid, parser_redirect, delete_issues, parser_user):
         i.add_argument(
             '--check',
             required=False, action='store_true', default=False,
@@ -177,6 +181,15 @@ def check_no_issue(redmine_project, gitlab_project):
 
 def check_origin_milestone(redmine_project, gitlab_project):
     return len(redmine_project.get_versions()) > 0
+
+def perform_get_user(args):
+    redmine = RedmineClient(args.redmine_key, args.no_verify)
+    redmine_project = RedmineProject(args.redmine_project_url, redmine)
+    redmine_users = redmine_project.get_participants()
+
+    for u in redmine_users:
+        print(u)
+
 
 def perform_migrate_pages(args):
     redmine = RedmineClient(args.redmine_key, args.no_verify)
